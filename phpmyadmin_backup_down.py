@@ -40,12 +40,13 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
     exclude_dbs = exclude_dbs.split(',') or []
     encoding = '' if compression == 'gzip' else 'gzip'
 
+    print(url)
     driver = webdriver.Chrome()
     driver.get(url)
+    print(driver.title)
     print(driver)
+    driver.implicitly_wait(0.5)
 
-
-download_mysql_backup()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -58,8 +59,10 @@ if __name__ == "__main__":
     )
 
     parser.add_argument('url', metavar='URL', help='phpMyAdmin login page url')
-    parser.add_argument('user', metavar='USERNAME', help='phpMyAdmin login username')
-    parser.add_argument('password', metavar='PASSWORD', help='phpMyAdmin login password')
+    parser.add_argument('user', metavar='USERNAME',
+                        help='phpMyAdmin login username')
+    parser.add_argument('password', metavar='PASSWORD',
+                        help='phpMyAdmin login password')
     parser.add_argument("-o", "--output-directory", default=os.getcwd(),
                         help="output directory for the SQL dump file (default: the current working directory)")
     parser.add_argument("-p", "--prepend-date", action="store_true", default=False,
@@ -90,15 +93,15 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # if args.prefix_format and not args.prepend_date:
-    #     print("Error: --prefix-format given without --prepend-date", file=sys.stderr)
-    #     sys.exit(2)
+    if args.prefix_format and not args.prepend_date:
+        print("Error: --prefix-format given without --prepend-date", file=sys.stderr)
+        sys.exit(2)
 
-    # try:
-    #     dump_fn = download_mysql_backup(**vars(args))
-    # except Exception as e:
-    #     print('Error: {}'.format(e), file=sys.stderr)
-    #     sys.exit(1)
+    try:
+        dump_fn = download_mysql_backup(**vars(args))
+    except Exception as e:
+        print('Error: {}'.format(e), file=sys.stderr)
+        sys.exit(1)
 
-    # print("{} saved SQL dump to: {}".format(('Would have' if args.dry_run else 'Successfully'), dump_fn),
-    #       file=sys.stdout)
+    print("{} saved SQL dump to: {}".format(('Would have' if args.dry_run else 'Successfully'), dump_fn),
+          file=sys.stdout)
