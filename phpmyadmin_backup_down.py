@@ -117,12 +117,15 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
         by=By.ID, value="radio_custom_export")
     custom_radio_button.click()
 
-    if exclude_dbs:
-        for db in exclude_dbs:
+    for db in exclude_dbs:
+        if len(db) > 0:
             db_option = driver.find_element(
                 by=By.CSS_SELECTOR, value="#db_select>option[value='{}']".format(db))
             db_option.click()
-            sleep(5)
+
+    compression_select = driver.find_element(by=By.ID, value="compression")
+    compression_select.send_keys(compression)
+    sleep(5)
 
     go_button = driver.find_element(by=By.ID, value="buttonGo")
     # go_button.click()
