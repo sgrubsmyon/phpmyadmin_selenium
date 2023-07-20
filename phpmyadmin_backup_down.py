@@ -77,7 +77,7 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
 
     if http_auth:
         url = re.sub("^(https?:\/\/)(.*)$", "\\1{}@\\2".format(http_auth), url)
-    
+
     driver.get(url)
 
     #########
@@ -118,24 +118,9 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
     custom_radio_button.click()
 
     if exclude_dbs:
-        print("Just for development because I only have one DB: Inserting other fake DBs that can be excluded.")
-        driver.execute_script(
-            """
-            let db_select = document.getElementById("db_select");
-            let other_option = document.createElement("option");
-            other_option.value = "abcdef";
-            other_option.innerHTML = "abcdef";
-            db_select.append(other_option);
-            other_option = document.createElement("option");
-            other_option.value = "bcdefg";
-            other_option.innerHTML = "bcdefg";
-            db_select.append(other_option);
-            // Select all DBs by default:
-            Functions.setSelectOptions('dump', 'db_select[]', true);
-            """
-        )
         for db in exclude_dbs:
-            db_option = driver.find_element(by=By.CSS_SELECTOR, value="#db_select>option[value='{}']".format(db))
+            db_option = driver.find_element(
+                by=By.CSS_SELECTOR, value="#db_select>option[value='{}']".format(db))
             db_option.click()
             sleep(5)
 
