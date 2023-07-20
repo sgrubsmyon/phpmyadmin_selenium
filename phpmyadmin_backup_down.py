@@ -18,19 +18,34 @@
 # A Python script to automate the download of SQL dump backups
 # via a phpMyAdmin web interface.
 #
+# Based on https://github.com/qubitstream/phpmyadmin_sql_backup, which
+# is defunct (actually its dependency grab is unmaintained and not working
+# anymore since Python 3.10. As of 2023-07-18, only version 0.6.41 of grab
+# from 2018-06-24 is on PyPI, but support for Python 3.10 was added only in
+# 2022-02-24, see https://github.com/lorien/grab/issues/394).
+#
 # tested on Python 3.10
 # requires: selenium (https://www.selenium.dev/)
 #
-# Markus Voge, started 2023-07
+# Markus Voge, 2023-07
 
 import argparse
 import os
 import sys
+import re
 
 from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 
 DEFAULT_PREFIX_FORMAT = r'%Y-%m-%d--%H-%M-%S-UTC_'
+
+
+def is_login_successful(driver):
+    page_source = str(driver.page_source.encode("utf-8"))
+    frame_content_present = "frame_content" in page_source
+    server_export_present = "server_export.php" in page_source
+    return frame_content_present or server_export_present
 
 
 def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing=False, prepend_date=True, basename=None,
@@ -40,12 +55,61 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
     exclude_dbs = exclude_dbs.split(',') or []
     encoding = '' if compression == 'gzip' else 'gzip'
 
+    chrome_options = Options()
+    # chrome_options.add_argument('--headless')
+    # fix the "DevToolsActivePort file doesn't exist" error (https://stackoverflow.com/questions/56637973/how-to-fix-selenium-devtoolsactiveport-file-doesnt-exist-exception-in-python)
+    chrome_options.add_argument("--remote-debugging-port=9222")
+    driver = webdriver.Chrome(options=chrome_options)
+    driver.implicitly_wait(30)
+
+    if http_auth:
+        url = re.sub("^(https?:\/\/)(.*)$", "\\1{}@\\2".format(http_auth), url)
     print(url)
-    driver = webdriver.Chrome()
     driver.get(url)
-    print(driver.title)
-    print(driver)
-    driver.implicitly_wait(0.5)
+
+    #########
+    # Login #
+    #########
+
+    username_box = driver.find_element(by=By.ID, value="input_username")
+    password_box = driver.find_element(by=By.ID, value="input_password")
+    server_box = None
+    if server_name:
+        server_box = driver.find_element(by=By.ID, value="input_servername")
+    submit_button = driver.find_element(by=By.ID, value="input_go")
+
+    username_box.send_keys(user)
+    password_box.send_keys(password)
+    if server_name:
+        server_box.send_keys(server_name)
+    submit_button.click()
+
+    if not is_login_successful(driver):
+        raise ValueError(
+            "Could not login - did you provide the correct username and password?")
+
+    #######################
+    # Configure DB Export #
+    #######################
+
+    export_button = driver.find_element(
+        by=By.CSS_SELECTOR, value=".tab[href='server_export.php']")
+    export_button.click()
+
+    # Open the custom options
+    custom_radio_button = driver.find_element(
+        by=By.ID, value="radio_custom_export")
+    custom_radio_button.click()
+
+    if exclude_dbs:
+        db_select = driver.find_element(by=By.ID, value="db_select")
+        print(db_select)
+        # for db in exclude_dbs:
+
+    go_button = driver.find_element(by=By.ID, value="buttonGo")
+    # go_button.click()
+
+    driver.quit()
 
 
 if __name__ == "__main__":
