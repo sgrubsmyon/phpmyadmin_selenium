@@ -33,6 +33,7 @@ import argparse
 import os
 import sys
 import re
+from time import sleep
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -41,11 +42,23 @@ from selenium.webdriver.common.by import By
 DEFAULT_PREFIX_FORMAT = r'%Y-%m-%d--%H-%M-%S-UTC_'
 
 
+def is_phpmyadmin_3(driver):
+    page_source = str(driver.page_source.encode("utf-8"))
+    frame_content_present = "frame_content" in page_source
+    return frame_content_present
+
+
 def is_login_successful(driver):
     page_source = str(driver.page_source.encode("utf-8"))
     frame_content_present = "frame_content" in page_source
     server_export_present = "server_export.php" in page_source
     return frame_content_present or server_export_present
+
+
+def open_frame(driver):
+    frame = driver.find_element(by=By.ID, value="frame_content")
+    frame_url = frame.get_attribute("src")
+    driver.get(frame_url)
 
 
 def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing=False, prepend_date=True, basename=None,
@@ -64,7 +77,7 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
 
     if http_auth:
         url = re.sub("^(https?:\/\/)(.*)$", "\\1{}@\\2".format(http_auth), url)
-    print(url)
+    
     driver.get(url)
 
     #########
@@ -88,6 +101,9 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
         raise ValueError(
             "Could not login - did you provide the correct username and password?")
 
+    if is_phpmyadmin_3(driver):
+        open_frame(driver)
+
     #######################
     # Configure DB Export #
     #######################
@@ -102,9 +118,26 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
     custom_radio_button.click()
 
     if exclude_dbs:
-        db_select = driver.find_element(by=By.ID, value="db_select")
-        print(db_select)
-        # for db in exclude_dbs:
+        print("Just for development because I only have one DB: Inserting other fake DBs that can be excluded.")
+        driver.execute_script(
+            """
+            let db_select = document.getElementById("db_select");
+            let other_option = document.createElement("option");
+            other_option.value = "abcdef";
+            other_option.innerHTML = "abcdef";
+            db_select.append(other_option);
+            other_option = document.createElement("option");
+            other_option.value = "bcdefg";
+            other_option.innerHTML = "bcdefg";
+            db_select.append(other_option);
+            // Select all DBs by default:
+            Functions.setSelectOptions('dump', 'db_select[]', true);
+            """
+        )
+        for db in exclude_dbs:
+            db_option = driver.find_element(by=By.CSS_SELECTOR, value="#db_select>option[value='{}']".format(db))
+            db_option.click()
+            sleep(5)
 
     go_button = driver.find_element(by=By.ID, value="buttonGo")
     # go_button.click()
