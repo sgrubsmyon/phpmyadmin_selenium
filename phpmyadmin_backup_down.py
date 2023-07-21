@@ -65,8 +65,6 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
                           output_directory=os.getcwd(), exclude_dbs=None, compression="none", prefix_format=None,
                           timeout=60, http_auth=None, server_name=None, **kwargs):
     prefix_format = prefix_format or DEFAULT_PREFIX_FORMAT
-    exclude_dbs = exclude_dbs.split(',') or []
-    encoding = '' if compression == 'gzip' else 'gzip'
 
     chrome_options = Options()
     # chrome_options.add_argument('--headless')
@@ -117,6 +115,7 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
         by=By.ID, value="radio_custom_export")
     custom_radio_button.click()
 
+    exclude_dbs = exclude_dbs.split(',') or []
     for db in exclude_dbs:
         if len(db) > 0:
             db_option = driver.find_element(
@@ -126,6 +125,10 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
     compression_select = driver.find_element(by=By.ID, value="compression")
     compression_select.send_keys(compression)
     sleep(5)
+
+    ##########################
+    # Download the DB export #
+    ##########################
 
     go_button = driver.find_element(by=By.ID, value="buttonGo")
     # go_button.click()
