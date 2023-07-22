@@ -34,6 +34,7 @@ import os
 import sys
 import re
 from time import sleep
+import time
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -55,25 +56,65 @@ def is_login_successful(driver):
     return frame_content_present or server_export_present
 
 
-def open_frame(driver):
-    frame = driver.find_element(by=By.ID, value="frame_content")
-    frame_url = frame.get_attribute("src")
-    driver.get(frame_url)
+def open_iframe(driver):
+    iframe = driver.find_element(by=By.ID, value="frame_content")
+    driver.switch_to.frame(iframe)
+
+
+# method to get the downloaded file name (https://stackoverflow.com/questions/34548041/selenium-give-file-name-when-downloading)
+def get_download_filename(driver, waitTime=5*60):
+    driver.execute_script("window.open()")
+    # switch to new tab
+    driver.switch_to.window(driver.window_handles[-1])
+    # navigate to chrome downloads
+    driver.get('chrome://downloads')
+    # define the endTime
+    endTime = time.time()+waitTime
+    while True:
+        try:
+            downloadFinished = driver.execute_script(
+                """
+                let description = document.querySelector("downloads-manager").shadowRoot
+                    .querySelector("#downloadsList downloads-item").shadowRoot
+                    .querySelector("#content>#details>#description");
+                if (description.hidden) return true;
+                else return false;
+                """
+            )
+            if downloadFinished:
+                # return the file name once the download is completed
+                return driver.execute_script(
+                    """
+                    return document.querySelector('downloads-manager')
+                        .shadowRoot.querySelector('#downloadsList downloads-item')
+                        .shadowRoot.querySelector('#content #file-link').text
+                    """)
+        except:
+            pass
+        time.sleep(1)
+        # Prevent an infinite loop if something goes wrong:
+        if time.time() > endTime:
+            print('Error: Timeout of {} seconds reached on SQL backup file download'.format(
+                waitTime), file=sys.stderr)
+            sys.exit(1)
 
 
 def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing=False, prepend_date=True, basename=None,
                           output_directory=os.getcwd(), exclude_dbs=None, compression="none", prefix_format=None,
-                          timeout=60, http_auth=None, server_name=None, **kwargs):
+                          timeout=30, http_auth=None, server_name=None, **kwargs):
     prefix_format = prefix_format or DEFAULT_PREFIX_FORMAT
 
     chrome_options = Options()
     # chrome_options.add_argument('--headless')
     # fix the "DevToolsActivePort file doesn't exist" error (https://stackoverflow.com/questions/56637973/how-to-fix-selenium-devtoolsactiveport-file-doesnt-exist-exception-in-python)
     chrome_options.add_argument("--remote-debugging-port=9222")
+    prefs = {"download.default_directory": output_directory}
+    chrome_options.add_experimental_option("prefs", prefs)
     driver = webdriver.Chrome(options=chrome_options)
-    driver.implicitly_wait(30)
+    driver.implicitly_wait(timeout)
 
     if http_auth:
+        # prepend 'username:password@' to the URL
         url = re.sub("^(https?:\/\/)(.*)$", "\\1{}@\\2".format(http_auth), url)
 
     driver.get(url)
@@ -100,7 +141,7 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
             "Could not login - did you provide the correct username and password?")
 
     if is_phpmyadmin_3(driver):
-        open_frame(driver)
+        open_iframe(driver)
 
     #######################
     # Configure DB Export #
@@ -131,7 +172,16 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
     ##########################
 
     go_button = driver.find_element(by=By.ID, value="buttonGo")
-    # go_button.click()
+    # Scroll button into view so that it's clickable and not behind the "pma_console":
+    driver.execute_script("arguments[0].scrollIntoView();", go_button)
+    go_button.click()
+    
+    download_filename = get_download_filename(driver)
+    print(download_filename)
+    # # Rename the downloaded file to the desired filename:
+    # src_path = os.path.join(output_directory, download_filename)
+    # tgt_path = os.path.join(output_directory, filename)
+    # os.rename(src_path, tgt_path)
 
     driver.quit()
 
