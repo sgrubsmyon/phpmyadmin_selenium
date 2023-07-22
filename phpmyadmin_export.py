@@ -33,11 +33,11 @@ import argparse
 import os
 import sys
 import re
-from time import sleep
 import time
 
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.firefox.options import Options
+# from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
 from selenium.webdriver.common.by import By
 
 DEFAULT_PREFIX_FORMAT = r'%Y-%m-%d--%H-%M-%S-UTC_'
@@ -61,36 +61,19 @@ def open_iframe(driver):
     driver.switch_to.frame(iframe)
 
 
-# method to get the downloaded file name (https://stackoverflow.com/questions/34548041/selenium-give-file-name-when-downloading)
-def get_download_filename(driver, waitTime=5*60):
-    driver.execute_script("window.open()")
-    # switch to new tab
-    driver.switch_to.window(driver.window_handles[-1])
-    # navigate to chrome downloads
-    driver.get('chrome://downloads')
-    # define the endTime
-    endTime = time.time()+waitTime
+    # get the downloaded file name (https://stackoverflow.com/questions/13317457/naming-a-file-when-downloading-with-selenium-webdriver)
+def get_download_filename(dir, waitTime=5*60):
+    os.chdir(dir)
+    endTime = time.time() + waitTime
     while True:
-        try:
-            downloadFinished = driver.execute_script(
-                """
-                let description = document.querySelector("downloads-manager").shadowRoot
-                    .querySelector("#downloadsList downloads-item").shadowRoot
-                    .querySelector("#content>#details>#description");
-                if (description.hidden) return true;
-                else return false;
-                """
-            )
-            if downloadFinished:
-                # return the file name once the download is completed
-                return driver.execute_script(
-                    """
-                    return document.querySelector('downloads-manager')
-                        .shadowRoot.querySelector('#downloadsList downloads-item')
-                        .shadowRoot.querySelector('#content #file-link').text
-                    """)
-        except:
-            pass
+        files = filter(os.path.isfile, os.listdir(dir))
+        files = [os.path.join(dir, f) for f in files]  # add path to each file
+        files.sort(key=lambda x: os.path.getmtime(x))
+        newest_file = files[-1]
+        _, extension = os.path.splitext(newest_file)
+        print(_, extension)
+        if extension != ".part":
+            return newest_file
         time.sleep(1)
         # Prevent an infinite loop if something goes wrong:
         if time.time() > endTime:
@@ -101,16 +84,27 @@ def get_download_filename(driver, waitTime=5*60):
 
 def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing=False, prepend_date=True, basename=None,
                           output_directory=os.getcwd(), exclude_dbs=None, compression="none", prefix_format=None,
-                          timeout=30, http_auth=None, server_name=None, **kwargs):
+                          timeout=10, http_auth=None, server_name=None, **kwargs):
     prefix_format = prefix_format or DEFAULT_PREFIX_FORMAT
 
-    chrome_options = Options()
-    # chrome_options.add_argument('--headless')
-    # fix the "DevToolsActivePort file doesn't exist" error (https://stackoverflow.com/questions/56637973/how-to-fix-selenium-devtoolsactiveport-file-doesnt-exist-exception-in-python)
-    chrome_options.add_argument("--remote-debugging-port=9222")
-    prefs = {"download.default_directory": output_directory}
-    chrome_options.add_experimental_option("prefs", prefs)
-    driver = webdriver.Chrome(options=chrome_options)
+    options = Options()
+    options.add_argument("-headless")
+    
+    # Firefox profiles deprecated
+    # firefox_profile = FirefoxProfile()
+    # firefox_profile.set_preference("browser.download.folderList", 2)
+    # firefox_profile.set_preference("browser.download.manager.showWhenStarting", False)
+    # firefox_profile.set_preference("browser.download.dir", output_directory)
+    # firefox_profile.set_preference("browser.helperApps.neverAsk.saveToDisk", "sql")
+    # options.profile = firefox_profile
+    
+    options.set_preference("browser.download.folderList", 2)
+    options.set_preference("browser.download.manager.showWhenStarting", False)
+    options.set_preference("browser.download.dir", output_directory)
+    options.set_preference("browser.helperApps.neverAsk.saveToDisk", "sql")
+
+    driver = webdriver.Firefox(options=options)
+
     driver.implicitly_wait(timeout)
 
     if http_auth:
@@ -148,12 +142,13 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
     #######################
 
     export_button = driver.find_element(
-        by=By.CSS_SELECTOR, value=".tab[href='server_export.php']")
+        By.CSS_SELECTOR, ".tab[href='server_export.php']")
+    time.sleep(5)
     export_button.click()
 
     # Open the custom options
     custom_radio_button = driver.find_element(
-        by=By.ID, value="radio_custom_export")
+        By.ID, "radio_custom_export")
     custom_radio_button.click()
 
     exclude_dbs = exclude_dbs.split(',') or []
@@ -165,7 +160,7 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
 
     compression_select = driver.find_element(by=By.ID, value="compression")
     compression_select.send_keys(compression)
-    sleep(5)
+    # time.sleep(5)
 
     ##########################
     # Download the DB export #
@@ -175,8 +170,8 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
     # Scroll button into view so that it's clickable and not behind the "pma_console":
     driver.execute_script("arguments[0].scrollIntoView();", go_button)
     go_button.click()
-    
-    download_filename = get_download_filename(driver)
+
+    download_filename = get_download_filename(output_directory)
     print(download_filename)
     # # Rename the downloaded file to the desired filename:
     # src_path = os.path.join(output_directory, download_filename)
@@ -216,7 +211,7 @@ if __name__ == "__main__":
                         help="the desired basename (without extension) of the SQL dump file (default: the name given "
                              "by phpMyAdmin); you can also set an empty basename "" in combination with "
                              "--prepend-date and --prefix-format")
-    parser.add_argument("--timeout", type=int, default=60,
+    parser.add_argument("--timeout", type=int, default=10,
                         help="timeout in seconds for the requests (default: %(default)s)")
     parser.add_argument("--overwrite-existing", action="store_true", default=False,
                         help="overwrite existing SQL dump files (instead of appending a number to the name)")
