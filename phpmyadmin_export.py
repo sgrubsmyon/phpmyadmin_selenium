@@ -30,6 +30,7 @@
 # Markus Voge, 2023-07
 
 import argparse
+import datetime
 import os
 import sys
 import re
@@ -40,7 +41,7 @@ from selenium.webdriver.firefox.options import Options
 # from selenium.webdriver.firefox.firefox_profile import FirefoxProfile
 from selenium.webdriver.common.by import By
 
-DEFAULT_PREFIX_FORMAT = r'%Y-%m-%d--%H-%M-%S-UTC_'
+DEFAULT_PREFIX_FORMAT = r'%Y-%m-%d_%H-%M-%S_UTC_'
 
 
 def is_phpmyadmin_3(driver):
@@ -61,7 +62,18 @@ def open_iframe(driver):
     driver.switch_to.frame(iframe)
 
 
-    # get the downloaded file name (https://stackoverflow.com/questions/13317457/naming-a-file-when-downloading-with-selenium-webdriver)
+def splitext_special(filename):
+    basename, ext = os.path.splitext(filename)
+    if ext == ".gz":
+        basename, ext = os.path.splitext(basename)
+        ext = ext + ".gz"
+    if ext == ".zip":
+        basename, ext = os.path.splitext(basename)
+        ext = ext + ".zip"
+    return basename, ext
+
+
+# get the downloaded file name (https://stackoverflow.com/questions/13317457/naming-a-file-when-downloading-with-selenium-webdriver)
 def get_download_filename(dir, waitTime=5*60):
     os.chdir(dir)
     endTime = time.time() + waitTime
@@ -70,10 +82,9 @@ def get_download_filename(dir, waitTime=5*60):
         files = [os.path.join(dir, f) for f in files]  # add path to each file
         files.sort(key=lambda x: os.path.getmtime(x))
         newest_file = files[-1]
-        _, extension = os.path.splitext(newest_file)
-        print(_, extension)
+        extension = splitext_special(newest_file)[1]
         if extension != ".part":
-            return newest_file
+            return os.path.basename(newest_file)
         time.sleep(1)
         # Prevent an infinite loop if something goes wrong:
         if time.time() > endTime:
@@ -89,7 +100,7 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
 
     options = Options()
     options.add_argument("-headless")
-    
+
     # Firefox profiles deprecated
     # firefox_profile = FirefoxProfile()
     # firefox_profile.set_preference("browser.download.folderList", 2)
@@ -97,7 +108,7 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
     # firefox_profile.set_preference("browser.download.dir", output_directory)
     # firefox_profile.set_preference("browser.helperApps.neverAsk.saveToDisk", "sql")
     # options.profile = firefox_profile
-    
+
     options.set_preference("browser.download.folderList", 2)
     options.set_preference("browser.download.manager.showWhenStarting", False)
     options.set_preference("browser.download.dir", output_directory)
@@ -169,16 +180,41 @@ def download_mysql_backup(url, user, password, dry_run=False, overwrite_existing
     go_button = driver.find_element(by=By.ID, value="buttonGo")
     # Scroll button into view so that it's clickable and not behind the "pma_console":
     driver.execute_script("arguments[0].scrollIntoView();", go_button)
-    go_button.click()
-
-    download_filename = get_download_filename(output_directory)
-    print(download_filename)
-    # # Rename the downloaded file to the desired filename:
-    # src_path = os.path.join(output_directory, download_filename)
-    # tgt_path = os.path.join(output_directory, filename)
-    # os.rename(src_path, tgt_path)
+    download_filename = "localhost.sql.gz" if compression == "gzip" else "localhost.sql.zip" if compression == "zip" else "localhost.sql"
+    if not dry_run:
+        go_button.click()
+        src_filename = get_download_filename(output_directory)
+        download_filename = src_filename
+    if dry_run or download_filename.startswith("localhost"):
+        download_filename = user + splitext_special(download_filename)[1]
 
     driver.quit()
+
+    filename = download_filename if basename is None else basename + \
+        splitext_special(download_filename)[1]
+    if prepend_date:
+        prefix = datetime.datetime.utcnow().strftime(prefix_format)
+        filename = prefix + filename
+    tgt_path = os.path.join(output_directory, filename)
+
+    if os.path.isfile(tgt_path) and not overwrite_existing:
+        basename, ext = splitext_special(tgt_path)
+        n = 1
+        print('File {} already exists, to overwrite it use --overwrite-existing'.format(
+            tgt_path), file=sys.stderr)
+        while True:
+            alternate_tgt_path = '{}({}){}'.format(basename, n, ext)
+            if not os.path.isfile(alternate_tgt_path):
+                tgt_path = alternate_tgt_path
+                break
+            n += 1
+
+    if not dry_run:
+        # Rename the downloaded file to the desired filename:
+        src_path = os.path.join(output_directory, src_filename)
+        os.rename(src_path, tgt_path)
+
+    return tgt_path
 
 
 if __name__ == "__main__":
@@ -186,9 +222,9 @@ if __name__ == "__main__":
         prog="phpmyadmin_backup_down",
         description="Automated download of MySQL backup files from a phpMyAdmin "
                     "web interface, using just one command on the commandline.",
-        epilog="Written by Markus Voge, because https://github.com/qubitstream/phpmyadmin_sql_backup "
-               "is defunct (actually its dependency grab is unmaintained and not working anymore "
-               "since Python 3.10)."
+        epilog="Written by Markus Voge, rewritten from https://github.com/qubitstream/phpmyadmin_sql_backup, "
+               "because it is defunct (actually its dependency grab is "
+               "unmaintained and not working anymore since Python 3.10)."
     )
 
     parser.add_argument('url', metavar='URL', help='phpMyAdmin login page url')
